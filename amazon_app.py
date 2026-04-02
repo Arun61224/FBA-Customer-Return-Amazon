@@ -27,7 +27,6 @@ st.markdown("""
 if 'amazon_df' not in st.session_state:
     st.session_state['amazon_df'] = None
 
-# New session state variables to store messages across reruns
 if 'bulk_msg' not in st.session_state:
     st.session_state['bulk_msg'] = None
 if 'bulk_status' not in st.session_state:
@@ -144,7 +143,6 @@ df = st.session_state.get('amazon_df')
 if df is None:
     st.info("👈 Please load data from the Sidebar to start.")
 else:
-    # We calculate stats AFTER any potential updates
     t_rows = len(df)
     r_count = (df['Received'] == "Received").sum()
     p_count = t_rows - r_count
@@ -198,7 +196,6 @@ else:
         
         if st.button("🚀 Process Bulk Upload"):
             if bulk_file:
-                # Clear previous messages
                 st.session_state['bulk_msg'] = None
                 st.session_state['missing_ids'] = None
                 
@@ -231,30 +228,49 @@ else:
                         newly_received_mask = matches_mask & (df['Received'] == "Not Received")
                         newly_received = df[newly_received_mask].shape[0]
                         
+                        current_time = get_ist_time()
+                        
                         # Process update
                         df.loc[newly_received_mask, 'Received'] = "Received"
-                        df.loc[newly_received_mask, 'Received Timestamp'] = get_ist_time()
+                        df.loc[newly_received_mask, 'Received Timestamp'] = current_time
                         
-                        # Save to session
                         st.session_state['amazon_df'] = df
                         
-                        # Store messages for display AFTER rerun
+                        # --- PUSH MISSING IDs TO "Not Found" SHEET ---
+                        not_found_msg = ""
+                        if missing_ids and gsheet_url:
+                            try:
+                                client = get_gspread_client()
+                                if client:
+                                    sh = client.open_by_url(gsheet_url)
+                                    try:
+                                        # Try to open existing 'Not Found' sheet
+                                        ws_not_found = sh.worksheet("Not Found")
+                                    except gspread.exceptions.WorksheetNotFound:
+                                        # Create if it doesn't exist
+                                        ws_not_found = sh.add_worksheet(title="Not Found", rows=1000, cols=2)
+                                        ws_not_found.append_row(["license-plate-number", "Timestamp"])
+                                    
+                                    # Prepare data and append
+                                    rows_to_append = [[lpn, current_time] for lpn in missing_ids]
+                                    ws_not_found.append_rows(rows_to_append)
+                                    not_found_msg = " (Data sent to 'Not Found' sheet ☁️)"
+                            except Exception as e:
+                                not_found_msg = f" (Error saving to sheet: {e})"
+                        
                         st.session_state['bulk_status'] = 'success'
-                        st.session_state['bulk_msg'] = f"✅ Bulk Update Done!\n\n🎯 Naye Mark hue: **{newly_received}** \n⚠️ Pehle se marked the: **{already_received}** \n❌ Not Found: **{len(missing_ids)}**"
+                        st.session_state['bulk_msg'] = f"✅ Bulk Update Done!\n\n🎯 Naye Mark hue: **{newly_received}** \n⚠️ Pehle se marked the: **{already_received}** \n❌ Not Found: **{len(missing_ids)}**{not_found_msg}"
                         
                         if missing_ids:
                             st.session_state['missing_ids'] = missing_ids
                             
-                        # CRITICAL FIX: Refresh the page so metrics update instantly
                         st.rerun()
             else:
                 st.warning("Please upload a file first.")
 
-        # Display success message after page reruns
         if st.session_state.get('bulk_msg'):
             st.success(st.session_state['bulk_msg'])
             
-            # Show download button for missing IDs if any exist
             if st.session_state.get('missing_ids'):
                 st.warning("⚠️ Kuch IDs sheet mein nahi mili. Niche se unki list download kar le:")
                 missing_df = pd.DataFrame({'Missing_LPNs': st.session_state['missing_ids']})
@@ -266,7 +282,6 @@ else:
                     key="download_missing_btn"
                 )
             
-            # Add a clear button so the user can hide the message when done
             if st.button("Clear Message", key="clear_bulk_msg"):
                 st.session_state['bulk_msg'] = None
                 st.session_state['missing_ids'] = None
