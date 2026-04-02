@@ -6,162 +6,121 @@ import pytz
 from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode, JsCode
 
 # -----------------------------------------------------------------------------
-# Configuration & Setup
+# Configuration
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Amazon Returns Scanner",
     page_icon="📦",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
+# Custom CSS for Amazon Theme
 st.markdown("""
     <style>
-    .big-font { font-size: 24px !important; font-weight: bold; }
-    .amazon-header { color: #FF9900; font-weight: bold; }
+    .big-font { font-size: 24px !important; font-weight: bold; color: #FF9900; }
+    .stButton>button { background-color: #FF9900; color: white; border-radius: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# Session State Initialization
-# -----------------------------------------------------------------------------
-for key in ['returns_df', 'scanned_message', 'scanned_status', 'bulk_message', 'bulk_status', 'missing_bulk_ids']:
-    if key not in st.session_state:
-        st.session_state[key] = None
+# Session State
+if 'amazon_df' not in st.session_state:
+    st.session_state['amazon_df'] = None
+
+def get_ist_time():
+    return datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %I:%M:%S %p')
 
 # -----------------------------------------------------------------------------
-# Helper Functions
-# -----------------------------------------------------------------------------
-def get_current_ist_time():
-    ist = pytz.timezone('Asia/Kolkata')
-    return datetime.now(ist).strftime('%Y-%m-%d %I:%M:%S %p')
-
-def process_scan(tracking_id):
-    df = st.session_state.get('returns_df')
-    if df is None:
-        st.error("Please upload the Amazon Excel/CSV file first.")
-        return
-
-    clean_id = str(tracking_id).strip().lower()
-    if not clean_id:
-        return
-
-    # Amazon files usually have Tracking ID in Column K, 
-    # but we search for the column name for flexibility.
-    mask = df['Tracking ID'].astype(str).str.strip().str.lower() == clean_id
-    
-    if mask.any():
-        if df.loc[mask, 'Received'].iloc[0] == "Received":
-            st.session_state['scanned_status'] = 'warning'
-            st.session_state['scanned_message'] = f"⚠️ Tracking ID '{tracking_id}' is ALREADY marked."
-        else:
-            df.loc[mask, 'Received'] = "Received"
-            df.loc[mask, 'Received Timestamp'] = get_current_ist_time()
-            st.session_state['returns_df'] = df
-            st.session_state['scanned_status'] = 'success'
-            st.session_state['scanned_message'] = f"✅ Marked as Received: {tracking_id}"
-    else:
-        st.session_state['scanned_status'] = 'error'
-        st.session_state['scanned_message'] = f"❌ Tracking ID '{tracking_id}' not found in the file!"
-
-def display_aggrid(df):
-    # Adjust these column names based on your Amazon Return Report
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=20)
-    gb.configure_default_column(filterable=True, sortable=True, resizable=True)
-    
-    row_style_jscode = JsCode("""
-    function(params) {
-        if (params.data.Received === "Received") {
-            return { 'color': '#0f5132', 'backgroundColor': '#d1e7dd' }
-        }
-    };
-    """)
-    gb.configure_grid_options(getRowStyle=row_style_jscode)
-    grid_options = gb.build()
-
-    AgGrid(df, gridOptions=grid_options, allow_unsafe_jscode=True, theme='streamlit')
-
-# -----------------------------------------------------------------------------
-# Sidebar - Data Loading
+# Sidebar: File Upload
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.title("🛒 Amazon Ops")
-    st.info("Currently in Local Mode (Google Sheet API Off)")
-    
-    uploaded_file = st.file_uploader("Upload Amazon Return Report (CSV/XLSX)", type=['csv', 'xlsx'])
+    st.header("📦 Amazon Data Central")
+    uploaded_file = st.file_uploader("Upload Amazon Return Report (Excel/CSV)", type=['csv', 'xlsx'])
     
     if uploaded_file:
-        if st.button("📊 Load File"):
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
-            
-            # Cleaning and prepping columns
-            df.columns = df.columns.str.strip()
-            
-            # Ensuring we find the Tracking ID (Column K)
-            if 'Tracking ID' not in df.columns:
-                st.error("❌ 'Tracking ID' column not found! Make sure column K is named correctly.")
-            else:
+        if st.button("🚀 Load Data"):
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+                
+                # Cleaning column names
+                df.columns = df.columns.str.strip()
+                
+                # Force "Received" columns if they don't exist
                 if 'Received' not in df.columns:
                     df['Received'] = "Not Received"
                 if 'Received Timestamp' not in df.columns:
                     df['Received Timestamp'] = ""
                 
-                st.session_state['returns_df'] = df
-                st.success("✅ Amazon Data Loaded!")
-
-    if st.session_state.get('returns_df') is not None:
-        st.divider()
-        st.markdown("### 💾 Export Data")
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            st.session_state['returns_df'].to_excel(writer, index=False)
-        
-        st.download_button(
-            label="⬇️ Download Updated Excel",
-            data=output.getvalue(),
-            file_name="amazon_returns_updated.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+                st.session_state['amazon_df'] = df
+                st.success("File Loaded Successfully!")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
 # -----------------------------------------------------------------------------
-# Main UI
+# Main Dashboard
 # -----------------------------------------------------------------------------
-st.markdown("<h1 class='amazon-header'>📦 Amazon Returns Scanner</h1>", unsafe_allow_html=True)
+st.markdown('<p class="big-font">Amazon Returns Scanner</p>', unsafe_allow_html=True)
 
-main_df = st.session_state.get('returns_df')
+df = st.session_state.get('amazon_df')
 
-if main_df is None:
-    st.warning("👈 Please upload the Amazon Return file in the sidebar to start scanning.")
+if df is None:
+    st.info("👈 Please upload your Amazon Return Report from the sidebar to begin.")
 else:
-    # Metrics
-    total = len(main_df)
-    rec = (main_df['Received'] == "Received").sum()
-    st.columns(3)[0].metric("Total Shipments", total)
-    st.columns(3)[1].metric("✅ Received", rec)
-    st.columns(3)[2].metric("⏳ Remaining", total - rec)
+    # Quick Stats
+    c1, c2, c3 = st.columns(3)
+    total = len(df)
+    done = (df['Received'] == "Received").sum()
+    c1.metric("Total Orders", total)
+    c2.metric("✅ Processed", done)
+    c3.metric("⏳ Pending", total - done)
 
-    tab_scan, tab_bulk = st.tabs(["🎯 Single Scan", "📁 Bulk Process"])
+    # Scanner Input
+    with st.container():
+        st.subheader("🎯 Scan Tracking ID")
+        scan_id = st.text_input("Point your scanner here...", placeholder="Scan Tracking ID (Column K)")
+        
+        if scan_id:
+            clean_id = str(scan_id).strip().lower()
+            # Searching in Tracking ID column
+            mask = df['Tracking ID'].astype(str).str.strip().str.lower() == clean_id
+            
+            if mask.any():
+                if df.loc[mask, 'Received'].iloc[0] == "Received":
+                    st.warning(f"⚠️ ID {scan_id} is already marked!")
+                else:
+                    df.loc[mask, 'Received'] = "Received"
+                    df.loc[mask, 'Received Timestamp'] = get_ist_time()
+                    st.session_state['amazon_df'] = df
+                    st.success(f"✅ Marked Received: {scan_id}")
+                    st.rerun()
+            else:
+                st.error(f"❌ Tracking ID {scan_id} not found in the file.")
 
-    with tab_scan:
-        with st.form("scan_form", clear_on_submit=True):
-            col_in, col_bt = st.columns([4, 1])
-            tid = col_in.text_input("Scan Amazon Tracking ID", placeholder="Paste or Scan ID here...")
-            if col_bt.form_submit_button("Mark"):
-                process_scan(tid)
-                st.rerun()
+    st.divider()
+    
+    # AgGrid Table
+    st.subheader("📊 Return Details")
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_pagination(paginationPageSize=15)
+    gb.configure_default_column(sortable=True, filterable=True)
+    
+    # Green highlight for received items
+    jscode = JsCode("""
+    function(params) {
+        if (params.data.Received === 'Received') {
+            return { 'color': 'white', 'backgroundColor': '#2e7d32' }
+        }
+    };
+    """)
+    gb.configure_grid_options(getRowStyle=jscode)
+    
+    AgGrid(df, gridOptions=gb.build(), allow_unsafe_jscode=True, theme='streamlit')
 
-        if st.session_state.scanned_message:
-            if st.session_state.scanned_status == 'success': st.success(st.session_state.scanned_message)
-            else: st.error(st.session_state.scanned_message)
-
-        st.markdown("### Live Preview")
-        display_aggrid(main_df)
-
-    with tab_bulk:
-        st.info("Bulk feature enabled. Upload a CSV with 'Tracking ID' column to mark multiple at once.")
-        # Similar logic to your Flipkart bulk upload can be added here
+    # Download Button
+    st.divider()
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    st.download_button("📥 Download Updated Amazon Sheet", output.getvalue(), "updated_amazon_returns.xlsx")
