@@ -52,13 +52,16 @@ def get_gspread_client():
         st.error(f"Authentication Error: {e}")
         return None
 
+def get_bulk_template():
+    df = pd.DataFrame(columns=['license-plate-number'])
+    return df.to_csv(index=False).encode('utf-8')
+
 # -----------------------------------------------------------------------------
 # 3. Sidebar (Data Load & Sync)
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("## ⚙️ App Controls")
     
-    # Default link set to the one provided
     default_link = "https://docs.google.com/spreadsheets/d/1NA-qRdPRpik-PLNpOVEpAYzj48nlc5FY2BQxXwCtB9U/edit?gid=0#gid=0"
     gsheet_url = st.text_input("Google Sheet Link:", value=default_link)
     
@@ -73,10 +76,8 @@ with st.sidebar:
                         data = ws.get_all_records()
                         df = pd.DataFrame(data)
                         
-                        # --- LICENSE PLATE NUMBER LOGIC ---
                         tracking_col = None
                         for col in df.columns:
-                            # Checking for license-plate-number
                             if 'license' in str(col).lower() and 'plate' in str(col).lower():
                                 tracking_col = col
                                 break
@@ -84,7 +85,6 @@ with st.sidebar:
                         if tracking_col is None:
                             st.error("❌ 'license-plate-number' column missing in Sheet!")
                         else:
-                            # Internally rename to 'Tracking ID' so the rest of the app runs smoothly
                             df.rename(columns={tracking_col: 'Tracking ID'}, inplace=True)
                             if 'Received' not in df.columns: df['Received'] = "Not Received"
                             if 'Received Timestamp' not in df.columns: df['Received Timestamp'] = ""
@@ -108,10 +108,7 @@ with st.sidebar:
                             sh = client.open_by_url(gsheet_url)
                             ws = sh.sheet1
                             
-                            # Create a copy for saving to avoid changing the live session state incorrectly
                             save_df = st.session_state['amazon_df'].copy()
-                            
-                            # Rename 'Tracking ID' back to the original 'license-plate-number' for the Google Sheet
                             save_df.rename(columns={'Tracking ID': 'license-plate-number'}, inplace=True)
                             
                             df_filled = save_df.fillna("").astype(str)
@@ -150,28 +147,101 @@ else:
 
     st.divider()
 
-    st.subheader("🎯 Scan License Plate Number")
-    with st.form("scanner_form", clear_on_submit=True):
-        col_input, col_btn = st.columns([4, 1])
-        scan_id = col_input.text_input("Scan barcode here...", label_visibility="collapsed", placeholder="Enter License Plate Number...")
-        submit = col_btn.form_submit_button("Mark Received")
+    # --- TABS FOR SINGLE SCAN & BULK UPLOAD ---
+    tab_scan, tab_bulk = st.tabs(["🎯 Single Scan", "📁 Bulk Upload"])
 
-    if submit and scan_id:
-        clean_id = str(scan_id).strip().lower()
-        # Internally it's still called Tracking ID for the matching logic
-        mask = df['Tracking ID'].astype(str).str.strip().str.lower() == clean_id
-        
-        if mask.any():
-            if df.loc[mask, 'Received'].iloc[0] == "Received":
-                st.warning(f"⚠️ License Plate '{scan_id}' is ALREADY marked.")
+    # TAB 1: Single Scan
+    with tab_scan:
+        st.subheader("Scan License Plate Number")
+        with st.form("scanner_form", clear_on_submit=True):
+            col_input, col_btn = st.columns([4, 1])
+            scan_id = col_input.text_input("Scan barcode here...", label_visibility="collapsed", placeholder="Enter License Plate Number...")
+            submit = col_btn.form_submit_button("Mark Received")
+
+        if submit and scan_id:
+            clean_id = str(scan_id).strip().lower()
+            mask = df['Tracking ID'].astype(str).str.strip().str.lower() == clean_id
+            
+            if mask.any():
+                if df.loc[mask, 'Received'].iloc[0] == "Received":
+                    st.warning(f"⚠️ License Plate '{scan_id}' is ALREADY marked.")
+                else:
+                    df.loc[mask, 'Received'] = "Received"
+                    df.loc[mask, 'Received Timestamp'] = get_ist_time()
+                    st.session_state['amazon_df'] = df
+                    st.success(f"✅ Successfully Marked: {scan_id}")
+                    st.rerun()
             else:
-                df.loc[mask, 'Received'] = "Received"
-                df.loc[mask, 'Received Timestamp'] = get_ist_time()
-                st.session_state['amazon_df'] = df
-                st.success(f"✅ Successfully Marked: {scan_id}")
-                st.rerun()
-        else:
-            st.error(f"❌ License Plate '{scan_id}' not found!")
+                st.error(f"❌ License Plate '{scan_id}' not found!")
+
+    # TAB 2: Bulk Upload
+    with tab_bulk:
+        st.subheader("📥 Bulk Mark Returns")
+        st.write("Template download karo, usme LPN IDs daalo, aur yahan upload kar do. Timestamp apne aap aaj lag jayega!")
+        
+        st.download_button(
+            label="⬇️ Download Bulk Template",
+            data=get_bulk_template(),
+            file_name="bulk_lpn_template.csv",
+            mime="text/csv"
+        )
+        
+        bulk_file = st.file_uploader("Upload filled template (.csv / .xlsx)", type=['csv', 'xlsx'])
+        
+        if st.button("🚀 Process Bulk Upload"):
+            if bulk_file:
+                if bulk_file.name.endswith('.csv'):
+                    b_df = pd.read_csv(bulk_file)
+                else:
+                    b_df = pd.read_excel(bulk_file)
+                
+                # Check for column
+                lpn_col = None
+                for col in b_df.columns:
+                    if 'license' in str(col).lower() and 'plate' in str(col).lower():
+                        lpn_col = col
+                        break
+                        
+                if not lpn_col:
+                    st.error("❌ Template mein 'license-plate-number' column nahi mila!")
+                else:
+                    bulk_ids = b_df[lpn_col].dropna().astype(str).str.strip().str.lower().tolist()
+                    
+                    if not bulk_ids:
+                        st.warning("⚠️ Uploaded file khali hai.")
+                    else:
+                        main_ids = set(df['Tracking ID'].astype(str).str.strip().str.lower().tolist())
+                        bulk_ids_set = set(bulk_ids)
+                        
+                        missing_ids = list(bulk_ids_set - main_ids)
+                        
+                        # Apply masking
+                        matches_mask = df['Tracking ID'].astype(str).str.strip().str.lower().isin(bulk_ids)
+                        already_received = df[matches_mask & (df['Received'] == "Received")].shape[0]
+                        newly_received_mask = matches_mask & (df['Received'] == "Not Received")
+                        newly_received = df[newly_received_mask].shape[0]
+                        
+                        # Update df
+                        df.loc[newly_received_mask, 'Received'] = "Received"
+                        df.loc[newly_received_mask, 'Received Timestamp'] = get_ist_time()
+                        
+                        st.session_state['amazon_df'] = df
+                        
+                        st.success(f"✅ Bulk Update Done!\n\n🎯 Naye Mark hue: **{newly_received}** \n⚠️ Pehle se marked the: **{already_received}** \n❌ Not Found: **{len(missing_ids)}**")
+                        
+                        if missing_ids:
+                            st.warning("⚠️ Kuch IDs sheet mein nahi mili. Niche se unki list download kar le:")
+                            missing_df = pd.DataFrame({'Missing_LPNs': missing_ids})
+                            st.download_button(
+                                label="⬇️ Download Missing IDs",
+                                data=missing_df.to_csv(index=False).encode('utf-8'),
+                                file_name="missing_lpns.csv",
+                                mime="text/csv"
+                            )
+            else:
+                st.warning("Please upload a file first.")
+
+    st.divider()
 
     # --- NATIVE DATA TABLE ---
     st.subheader("📊 Live Data Preview")
@@ -182,7 +252,6 @@ else:
         else:
             return [''] * len(row)
 
-    # Make a copy for display to rename the column back to license-plate-number visually
     display_df = df.copy()
     display_df.rename(columns={'Tracking ID': 'license-plate-number'}, inplace=True)
     styled_df = display_df.style.apply(highlight_received, axis=1)
