@@ -43,7 +43,6 @@ def get_gspread_client():
         else:
             creds_info = dict(secret_data)
             
-        # Fix for private key newlines
         if "private_key" in creds_info:
             creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
             
@@ -70,12 +69,22 @@ with st.sidebar:
                 else: df = pd.read_excel(uploaded_file)
                 
                 df.columns = df.columns.str.strip()
-                if 'Tracking ID' not in df.columns: st.error("❌ 'Tracking ID' column missing!")
+                
+                # --- SMART COLUMN FINDER LOGIC ---
+                tracking_col = None
+                for col in df.columns:
+                    if 'tracking' in str(col).lower() and 'id' in str(col).lower():
+                        tracking_col = col
+                        break
+
+                if tracking_col is None:
+                    st.error("❌ 'Tracking ID' column nahi mila! Pura header check karo.")
                 else:
+                    df.rename(columns={tracking_col: 'Tracking ID'}, inplace=True)
                     if 'Received' not in df.columns: df['Received'] = "Not Received"
                     if 'Received Timestamp' not in df.columns: df['Received Timestamp'] = ""
                     st.session_state['amazon_df'] = df
-                    st.success("Local data loaded!")
+                    st.success("✅ Local data loaded!")
                     st.rerun()
             else: st.warning("Upload a file first.")
 
@@ -91,12 +100,22 @@ with st.sidebar:
                             ws = sh.sheet1
                             data = ws.get_all_records()
                             df = pd.DataFrame(data)
-                            if 'Tracking ID' not in df.columns: st.error("❌ 'Tracking ID' column missing in Sheet!")
+                            
+                            # --- SMART COLUMN FINDER LOGIC ---
+                            tracking_col = None
+                            for col in df.columns:
+                                if 'tracking' in str(col).lower() and 'id' in str(col).lower():
+                                    tracking_col = col
+                                    break
+
+                            if tracking_col is None:
+                                st.error("❌ 'Tracking ID' column missing in Sheet!")
                             else:
+                                df.rename(columns={tracking_col: 'Tracking ID'}, inplace=True)
                                 if 'Received' not in df.columns: df['Received'] = "Not Received"
                                 if 'Received Timestamp' not in df.columns: df['Received Timestamp'] = ""
                                 st.session_state['amazon_df'] = df
-                                st.success("Data loaded from Cloud!")
+                                st.success("✅ Data loaded from Cloud!")
                                 st.rerun()
                         except Exception as e:
                             st.error(f"Error loading sheet: {e}")
