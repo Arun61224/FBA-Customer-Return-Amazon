@@ -4,3 +4,4 @@ openpyxl
 pytz
 gspread
 google-auth
+plotly
