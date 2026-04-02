@@ -3,3 +3,5 @@ pandas
 openpyxl
 st-aggrid
 pytz
+gspread
+google-auth
