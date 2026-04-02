@@ -27,6 +27,14 @@ st.markdown("""
 if 'amazon_df' not in st.session_state:
     st.session_state['amazon_df'] = None
 
+# New session state variables to store messages across reruns
+if 'bulk_msg' not in st.session_state:
+    st.session_state['bulk_msg'] = None
+if 'bulk_status' not in st.session_state:
+    st.session_state['bulk_status'] = None
+if 'missing_ids' not in st.session_state:
+    st.session_state['missing_ids'] = None
+
 def get_ist_time():
     ist = pytz.timezone('Asia/Kolkata')
     return datetime.now(ist).strftime('%Y-%m-%d %I:%M:%S %p')
@@ -136,6 +144,7 @@ df = st.session_state.get('amazon_df')
 if df is None:
     st.info("👈 Please load data from the Sidebar to start.")
 else:
+    # We calculate stats AFTER any potential updates
     t_rows = len(df)
     r_count = (df['Received'] == "Received").sum()
     p_count = t_rows - r_count
@@ -147,10 +156,9 @@ else:
 
     st.divider()
 
-    # --- TABS FOR SINGLE SCAN & BULK UPLOAD ---
     tab_scan, tab_bulk = st.tabs(["🎯 Single Scan", "📁 Bulk Upload"])
 
-    # TAB 1: Single Scan
+    # --- TAB 1: Single Scan ---
     with tab_scan:
         st.subheader("Scan License Plate Number")
         with st.form("scanner_form", clear_on_submit=True):
@@ -174,10 +182,10 @@ else:
             else:
                 st.error(f"❌ License Plate '{scan_id}' not found!")
 
-    # TAB 2: Bulk Upload
+    # --- TAB 2: Bulk Upload ---
     with tab_bulk:
         st.subheader("📥 Bulk Mark Returns")
-        st.write("Template download karo, usme LPN IDs daalo, aur yahan upload kar do. Timestamp apne aap aaj lag jayega!")
+        st.write("Template download karo, usme LPN IDs daalo, aur yahan upload kar do.")
         
         st.download_button(
             label="⬇️ Download Bulk Template",
@@ -190,12 +198,15 @@ else:
         
         if st.button("🚀 Process Bulk Upload"):
             if bulk_file:
+                # Clear previous messages
+                st.session_state['bulk_msg'] = None
+                st.session_state['missing_ids'] = None
+                
                 if bulk_file.name.endswith('.csv'):
                     b_df = pd.read_csv(bulk_file)
                 else:
                     b_df = pd.read_excel(bulk_file)
                 
-                # Check for column
                 lpn_col = None
                 for col in b_df.columns:
                     if 'license' in str(col).lower() and 'plate' in str(col).lower():
@@ -215,31 +226,51 @@ else:
                         
                         missing_ids = list(bulk_ids_set - main_ids)
                         
-                        # Apply masking
                         matches_mask = df['Tracking ID'].astype(str).str.strip().str.lower().isin(bulk_ids)
                         already_received = df[matches_mask & (df['Received'] == "Received")].shape[0]
                         newly_received_mask = matches_mask & (df['Received'] == "Not Received")
                         newly_received = df[newly_received_mask].shape[0]
                         
-                        # Update df
+                        # Process update
                         df.loc[newly_received_mask, 'Received'] = "Received"
                         df.loc[newly_received_mask, 'Received Timestamp'] = get_ist_time()
                         
+                        # Save to session
                         st.session_state['amazon_df'] = df
                         
-                        st.success(f"✅ Bulk Update Done!\n\n🎯 Naye Mark hue: **{newly_received}** \n⚠️ Pehle se marked the: **{already_received}** \n❌ Not Found: **{len(missing_ids)}**")
+                        # Store messages for display AFTER rerun
+                        st.session_state['bulk_status'] = 'success'
+                        st.session_state['bulk_msg'] = f"✅ Bulk Update Done!\n\n🎯 Naye Mark hue: **{newly_received}** \n⚠️ Pehle se marked the: **{already_received}** \n❌ Not Found: **{len(missing_ids)}**"
                         
                         if missing_ids:
-                            st.warning("⚠️ Kuch IDs sheet mein nahi mili. Niche se unki list download kar le:")
-                            missing_df = pd.DataFrame({'Missing_LPNs': missing_ids})
-                            st.download_button(
-                                label="⬇️ Download Missing IDs",
-                                data=missing_df.to_csv(index=False).encode('utf-8'),
-                                file_name="missing_lpns.csv",
-                                mime="text/csv"
-                            )
+                            st.session_state['missing_ids'] = missing_ids
+                            
+                        # CRITICAL FIX: Refresh the page so metrics update instantly
+                        st.rerun()
             else:
                 st.warning("Please upload a file first.")
+
+        # Display success message after page reruns
+        if st.session_state.get('bulk_msg'):
+            st.success(st.session_state['bulk_msg'])
+            
+            # Show download button for missing IDs if any exist
+            if st.session_state.get('missing_ids'):
+                st.warning("⚠️ Kuch IDs sheet mein nahi mili. Niche se unki list download kar le:")
+                missing_df = pd.DataFrame({'Missing_LPNs': st.session_state['missing_ids']})
+                st.download_button(
+                    label="⬇️ Download Missing IDs",
+                    data=missing_df.to_csv(index=False).encode('utf-8'),
+                    file_name="missing_lpns.csv",
+                    mime="text/csv",
+                    key="download_missing_btn"
+                )
+            
+            # Add a clear button so the user can hide the message when done
+            if st.button("Clear Message", key="clear_bulk_msg"):
+                st.session_state['bulk_msg'] = None
+                st.session_state['missing_ids'] = None
+                st.rerun()
 
     st.divider()
 
