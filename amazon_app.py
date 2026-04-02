@@ -58,65 +58,42 @@ def get_gspread_client():
 with st.sidebar:
     st.markdown("## ⚙️ App Controls")
     
-    tab_local, tab_cloud = st.tabs(["📁 Local File", "☁️ Google Sheet"])
+    # Default link set to the one provided
+    default_link = "https://docs.google.com/spreadsheets/d/1NA-qRdPRpik-PLNpOVEpAYzj48nlc5FY2BQxXwCtB9U/edit?gid=0#gid=0"
+    gsheet_url = st.text_input("Google Sheet Link:", value=default_link)
     
-    with tab_local:
-        uploaded_file = st.file_uploader("Upload Amazon File (.xlsx/.csv)", type=['csv', 'xlsx'])
-        if st.button("Load Local Data"):
-            if uploaded_file:
-                if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
-                else: df = pd.read_excel(uploaded_file)
-                
-                df.columns = df.columns.str.strip()
-                
-                tracking_col = None
-                for col in df.columns:
-                    if 'tracking' in str(col).lower() and 'id' in str(col).lower():
-                        tracking_col = col
-                        break
+    if st.button("📥 Load from Google Sheet"):
+        if gsheet_url:
+            with st.spinner("Connecting to Google Sheets..."):
+                client = get_gspread_client()
+                if client:
+                    try:
+                        sh = client.open_by_url(gsheet_url)
+                        ws = sh.sheet1
+                        data = ws.get_all_records()
+                        df = pd.DataFrame(data)
+                        
+                        # --- LICENSE PLATE NUMBER LOGIC ---
+                        tracking_col = None
+                        for col in df.columns:
+                            # Checking for license-plate-number
+                            if 'license' in str(col).lower() and 'plate' in str(col).lower():
+                                tracking_col = col
+                                break
 
-                if tracking_col is None:
-                    st.error("❌ 'Tracking ID' column nahi mila! Pura header check karo.")
-                else:
-                    df.rename(columns={tracking_col: 'Tracking ID'}, inplace=True)
-                    if 'Received' not in df.columns: df['Received'] = "Not Received"
-                    if 'Received Timestamp' not in df.columns: df['Received Timestamp'] = ""
-                    st.session_state['amazon_df'] = df
-                    st.success("✅ Local data loaded!")
-                    st.rerun()
-            else: st.warning("Upload a file first.")
-
-    with tab_cloud:
-        gsheet_url = st.text_input("Paste Google Sheet Link:")
-        if st.button("📥 Load from Google Sheet"):
-            if gsheet_url:
-                with st.spinner("Connecting to Google Sheets..."):
-                    client = get_gspread_client()
-                    if client:
-                        try:
-                            sh = client.open_by_url(gsheet_url)
-                            ws = sh.sheet1
-                            data = ws.get_all_records()
-                            df = pd.DataFrame(data)
-                            
-                            tracking_col = None
-                            for col in df.columns:
-                                if 'tracking' in str(col).lower() and 'id' in str(col).lower():
-                                    tracking_col = col
-                                    break
-
-                            if tracking_col is None:
-                                st.error("❌ 'Tracking ID' column missing in Sheet!")
-                            else:
-                                df.rename(columns={tracking_col: 'Tracking ID'}, inplace=True)
-                                if 'Received' not in df.columns: df['Received'] = "Not Received"
-                                if 'Received Timestamp' not in df.columns: df['Received Timestamp'] = ""
-                                st.session_state['amazon_df'] = df
-                                st.success("✅ Data loaded from Cloud!")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"Error loading sheet: {e}")
-            else: st.warning("Paste a link first.")
+                        if tracking_col is None:
+                            st.error("❌ 'license-plate-number' column missing in Sheet!")
+                        else:
+                            # Internally rename to 'Tracking ID' so the rest of the app runs smoothly
+                            df.rename(columns={tracking_col: 'Tracking ID'}, inplace=True)
+                            if 'Received' not in df.columns: df['Received'] = "Not Received"
+                            if 'Received Timestamp' not in df.columns: df['Received Timestamp'] = ""
+                            st.session_state['amazon_df'] = df
+                            st.success("✅ Data loaded from Cloud!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Error loading sheet: {e}")
+        else: st.warning("Paste a link first.")
 
     if st.session_state['amazon_df'] is not None:
         st.divider()
@@ -130,17 +107,26 @@ with st.sidebar:
                         try:
                             sh = client.open_by_url(gsheet_url)
                             ws = sh.sheet1
-                            df_filled = st.session_state['amazon_df'].fillna("").astype(str)
+                            
+                            # Create a copy for saving to avoid changing the live session state incorrectly
+                            save_df = st.session_state['amazon_df'].copy()
+                            
+                            # Rename 'Tracking ID' back to the original 'license-plate-number' for the Google Sheet
+                            save_df.rename(columns={'Tracking ID': 'license-plate-number'}, inplace=True)
+                            
+                            df_filled = save_df.fillna("").astype(str)
                             data_to_upload = [df_filled.columns.tolist()] + df_filled.values.tolist()
                             ws.update(range_name="A1", values=data_to_upload)
                             st.success("✅ Successfully synced to Google Sheet!")
                         except Exception as e:
                             st.error(f"Sync Error: {e}")
-            else: st.warning("Please provide a Google Sheet link in the Cloud tab.")
+            else: st.warning("Please provide a Google Sheet link.")
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            st.session_state['amazon_df'].to_excel(writer, index=False)
+            export_df = st.session_state['amazon_df'].copy()
+            export_df.rename(columns={'Tracking ID': 'license-plate-number'}, inplace=True)
+            export_df.to_excel(writer, index=False)
         st.download_button("📥 Download Excel Backup", output.getvalue(), f"Amazon_Returns_{datetime.now().strftime('%d_%m')}.xlsx")
 
 # -----------------------------------------------------------------------------
@@ -151,7 +137,7 @@ st.markdown('<div class="main-title">📦 Amazon Returns Scanner</div>', unsafe_
 df = st.session_state.get('amazon_df')
 
 if df is None:
-    st.info("👈 Please load data from the Sidebar (Local File or Google Sheet) to start.")
+    st.info("👈 Please load data from the Sidebar to start.")
 else:
     t_rows = len(df)
     r_count = (df['Received'] == "Received").sum()
@@ -164,19 +150,20 @@ else:
 
     st.divider()
 
-    st.subheader("🎯 Scan Tracking ID")
+    st.subheader("🎯 Scan License Plate Number")
     with st.form("scanner_form", clear_on_submit=True):
         col_input, col_btn = st.columns([4, 1])
-        scan_id = col_input.text_input("Scan barcode here...", label_visibility="collapsed")
+        scan_id = col_input.text_input("Scan barcode here...", label_visibility="collapsed", placeholder="Enter License Plate Number...")
         submit = col_btn.form_submit_button("Mark Received")
 
     if submit and scan_id:
         clean_id = str(scan_id).strip().lower()
+        # Internally it's still called Tracking ID for the matching logic
         mask = df['Tracking ID'].astype(str).str.strip().str.lower() == clean_id
         
         if mask.any():
             if df.loc[mask, 'Received'].iloc[0] == "Received":
-                st.warning(f"⚠️ Tracking ID '{scan_id}' is ALREADY marked.")
+                st.warning(f"⚠️ License Plate '{scan_id}' is ALREADY marked.")
             else:
                 df.loc[mask, 'Received'] = "Received"
                 df.loc[mask, 'Received Timestamp'] = get_ist_time()
@@ -184,18 +171,20 @@ else:
                 st.success(f"✅ Successfully Marked: {scan_id}")
                 st.rerun()
         else:
-            st.error(f"❌ Tracking ID '{scan_id}' not found!")
+            st.error(f"❌ License Plate '{scan_id}' not found!")
 
-    # --- NATIVE DATA TABLE (Replaced AgGrid) ---
+    # --- NATIVE DATA TABLE ---
     st.subheader("📊 Live Data Preview")
     
-    # Styling function to highlight 'Received' rows in green
     def highlight_received(row):
         if row['Received'] == "Received":
             return ['background-color: #2e7d32; color: white'] * len(row)
         else:
             return [''] * len(row)
 
-    # Apply styling and display
-    styled_df = df.style.apply(highlight_received, axis=1)
+    # Make a copy for display to rename the column back to license-plate-number visually
+    display_df = df.copy()
+    display_df.rename(columns={'Tracking ID': 'license-plate-number'}, inplace=True)
+    styled_df = display_df.style.apply(highlight_received, axis=1)
+    
     st.dataframe(styled_df, use_container_width=True, height=500)
