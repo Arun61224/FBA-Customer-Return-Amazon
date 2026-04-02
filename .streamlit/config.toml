@@ -1,0 +1,9 @@
+[theme]
+primaryColor = "#FF9900"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F3F3F3"
+textColor = "#111111"
+font = "sans serif"
+
+[layout]
+wideMode = true
