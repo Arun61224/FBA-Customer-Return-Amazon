@@ -133,6 +133,11 @@ with st.sidebar:
             export_df.to_excel(writer, index=False)
         st.download_button("📥 Download Excel Backup", output.getvalue(), f"Amazon_Returns_{datetime.now().strftime('%d_%m')}.xlsx")
 
+    # --- MULTIPAGE NAVIGATION (DIVIDER KE SATH) ---
+    st.divider()
+    st.markdown("### 📊 Dashboards")
+    st.page_link("pages/seller_flex_return.py", label="Seller Flex Returns", icon="📈")
+
 # -----------------------------------------------------------------------------
 # 4. Main Dashboard
 # -----------------------------------------------------------------------------
@@ -244,14 +249,11 @@ else:
                                 if client:
                                     sh = client.open_by_url(gsheet_url)
                                     try:
-                                        # Try to open existing 'Not Found' sheet
                                         ws_not_found = sh.worksheet("Not Found")
                                     except gspread.exceptions.WorksheetNotFound:
-                                        # Create if it doesn't exist
                                         ws_not_found = sh.add_worksheet(title="Not Found", rows=1000, cols=2)
                                         ws_not_found.append_row(["license-plate-number", "Timestamp"])
                                     
-                                    # Prepare data and append
                                     rows_to_append = [[lpn, current_time] for lpn in missing_ids]
                                     ws_not_found.append_rows(rows_to_append)
                                     not_found_msg = " (Data sent to 'Not Found' sheet ☁️)"
