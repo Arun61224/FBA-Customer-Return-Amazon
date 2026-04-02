@@ -7,3 +7,4 @@ google-auth
 pytz
 gspread>=6.1.0
 google-auth
+plotly
