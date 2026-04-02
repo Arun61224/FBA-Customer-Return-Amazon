@@ -6,7 +6,6 @@ import json
 import io
 from datetime import datetime
 import pytz
-from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode, JsCode
 
 # -----------------------------------------------------------------------------
 # 1. Page Configuration & Theme
@@ -70,7 +69,6 @@ with st.sidebar:
                 
                 df.columns = df.columns.str.strip()
                 
-                # --- SMART COLUMN FINDER LOGIC ---
                 tracking_col = None
                 for col in df.columns:
                     if 'tracking' in str(col).lower() and 'id' in str(col).lower():
@@ -101,7 +99,6 @@ with st.sidebar:
                             data = ws.get_all_records()
                             df = pd.DataFrame(data)
                             
-                            # --- SMART COLUMN FINDER LOGIC ---
                             tracking_col = None
                             for col in df.columns:
                                 if 'tracking' in str(col).lower() and 'id' in str(col).lower():
@@ -125,7 +122,6 @@ with st.sidebar:
         st.divider()
         st.markdown("### 💾 Save Work")
         
-        # Sync to Cloud
         if st.button("🚀 Push to Google Sheet", type="primary"):
             if gsheet_url:
                 with st.spinner("Syncing to Cloud..."):
@@ -142,7 +138,6 @@ with st.sidebar:
                             st.error(f"Sync Error: {e}")
             else: st.warning("Please provide a Google Sheet link in the Cloud tab.")
 
-        # Download Local Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             st.session_state['amazon_df'].to_excel(writer, index=False)
@@ -158,7 +153,6 @@ df = st.session_state.get('amazon_df')
 if df is None:
     st.info("👈 Please load data from the Sidebar (Local File or Google Sheet) to start.")
 else:
-    # --- Metrics ---
     t_rows = len(df)
     r_count = (df['Received'] == "Received").sum()
     p_count = t_rows - r_count
@@ -170,7 +164,6 @@ else:
 
     st.divider()
 
-    # --- Scanner ---
     st.subheader("🎯 Scan Tracking ID")
     with st.form("scanner_form", clear_on_submit=True):
         col_input, col_btn = st.columns([4, 1])
@@ -193,18 +186,16 @@ else:
         else:
             st.error(f"❌ Tracking ID '{scan_id}' not found!")
 
-    # --- Data Table ---
+    # --- NATIVE DATA TABLE (Replaced AgGrid) ---
     st.subheader("📊 Live Data Preview")
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=15)
-    gb.configure_default_column(filterable=True, sortable=True)
     
-    jscode = JsCode("""
-    function(params) {
-        if (params.data.Received === "Received") {
-            return { 'color': 'white', 'backgroundColor': '#2e7d32' }
-        }
-    };
-    """)
-    gb.configure_grid_options(getRowStyle=jscode)
-    AgGrid(df, gridOptions=gb.build(), allow_unsafe_jscode=True, theme='streamlit', height=500)
+    # Styling function to highlight 'Received' rows in green
+    def highlight_received(row):
+        if row['Received'] == "Received":
+            return ['background-color: #2e7d32; color: white'] * len(row)
+        else:
+            return [''] * len(row)
+
+    # Apply styling and display
+    styled_df = df.style.apply(highlight_received, axis=1)
+    st.dataframe(styled_df, use_container_width=True, height=500)
