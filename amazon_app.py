@@ -4,6 +4,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 import io
+import os
 from datetime import datetime
 import pytz
 
@@ -133,10 +134,16 @@ with st.sidebar:
             export_df.to_excel(writer, index=False)
         st.download_button("📥 Download Excel Backup", output.getvalue(), f"Amazon_Returns_{datetime.now().strftime('%d_%m')}.xlsx")
 
-    # --- MULTIPAGE NAVIGATION (DIVIDER KE SATH) ---
+    # --- SMART MULTIPAGE NAVIGATION ---
     st.divider()
     st.markdown("### 📊 Dashboards")
-    st.page_link("pages/seller_flex_return.py", label="Seller Flex Returns", icon="📈")
+    
+    # Ye check karega ki file exist karti hai ya nahi, taaki crash na ho
+    file_path = "pages/seller_flex_return.py"
+    if os.path.exists(file_path):
+        st.page_link(file_path, label="Seller Flex Returns", icon="📈")
+    else:
+        st.error(f"⚠️ Nayi app nahi mili! Check kar ki tune '{file_path}' sahi se banaya hai ya GitHub pe push kiya hai.")
 
 # -----------------------------------------------------------------------------
 # 4. Main Dashboard
