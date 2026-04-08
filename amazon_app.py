@@ -96,11 +96,11 @@ with st.sidebar:
                             if 'Received' not in df.columns: df['Received'] = "Not Received"
                             if 'Received Timestamp' not in df.columns: df['Received Timestamp'] = ""
                             st.session_state['amazon_df'] = df
-                            st.success("✅ Data loaded from Cloud!")
+                            st.success("✅ Data loaded successfully!")
                             st.rerun()
                     except Exception as e:
                         st.error(f"Error loading sheet: {e}")
-        else: st.warning("Paste a link first.")
+        else: st.warning("Please paste a valid Google Sheet link first.")
 
     if st.session_state['amazon_df'] is not None:
         st.divider()
@@ -141,7 +141,7 @@ st.markdown('<div class="main-title">📦 Amazon Returns Scanner</div>', unsafe_
 df = st.session_state.get('amazon_df')
 
 if df is None:
-    st.info("👈 Please load data from the Sidebar to start.")
+    st.info("👈 Please load data from the Sidebar to begin.")
 else:
     t_rows = len(df)
     r_count = (df['Received'] == "Received").sum()
@@ -170,7 +170,7 @@ else:
             
             if mask.any():
                 if df.loc[mask, 'Received'].iloc[0] == "Received":
-                    st.warning(f"⚠️ License Plate '{scan_id}' is ALREADY marked.")
+                    st.warning(f"⚠️ License Plate '{scan_id}' is ALREADY marked as Received.")
                 else:
                     df.loc[mask, 'Received'] = "Received"
                     df.loc[mask, 'Received Timestamp'] = get_ist_time()
@@ -178,12 +178,12 @@ else:
                     st.success(f"✅ Successfully Marked: {scan_id}")
                     st.rerun()
             else:
-                st.error(f"❌ License Plate '{scan_id}' not found!")
+                st.error(f"❌ License Plate '{scan_id}' not found in the database!")
 
     # --- TAB 2: Bulk Upload ---
     with tab_bulk:
         st.subheader("📥 Bulk Mark Returns")
-        st.write("Template download karo, usme LPN IDs daalo, aur yahan upload kar do.")
+        st.write("Download the template, fill in the LPN IDs, and upload the file here.")
         
         st.download_button(
             label="⬇️ Download Bulk Template",
@@ -211,12 +211,12 @@ else:
                         break
                         
                 if not lpn_col:
-                    st.error("❌ Template mein 'license-plate-number' column nahi mila!")
+                    st.error("❌ The column 'license-plate-number' was not found in the template!")
                 else:
                     bulk_ids = b_df[lpn_col].dropna().astype(str).str.strip().str.lower().tolist()
                     
                     if not bulk_ids:
-                        st.warning("⚠️ Uploaded file khali hai.")
+                        st.warning("⚠️ The uploaded file is empty.")
                     else:
                         main_ids = set(df['Tracking ID'].astype(str).str.strip().str.lower().tolist())
                         bulk_ids_set = set(bulk_ids)
@@ -254,25 +254,25 @@ else:
                                     # Prepare data and append
                                     rows_to_append = [[lpn, current_time] for lpn in missing_ids]
                                     ws_not_found.append_rows(rows_to_append)
-                                    not_found_msg = " (Data sent to 'Not Found' sheet ☁️)"
+                                    not_found_msg = " (Missing data synced to 'Not Found' sheet ☁️)"
                             except Exception as e:
-                                not_found_msg = f" (Error saving to sheet: {e})"
+                                not_found_msg = f" (Error saving missing IDs to cloud: {e})"
                         
                         st.session_state['bulk_status'] = 'success'
-                        st.session_state['bulk_msg'] = f"✅ Bulk Update Done!\n\n🎯 Naye Mark hue: **{newly_received}** \n⚠️ Pehle se marked the: **{already_received}** \n❌ Not Found: **{len(missing_ids)}**{not_found_msg}"
+                        st.session_state['bulk_msg'] = f"✅ Bulk Update Complete!\n\n🎯 Newly Marked: **{newly_received}** \n⚠️ Previously Marked: **{already_received}** \n❌ Not Found: **{len(missing_ids)}**{not_found_msg}"
                         
                         if missing_ids:
                             st.session_state['missing_ids'] = missing_ids
                             
                         st.rerun()
             else:
-                st.warning("Please upload a file first.")
+                st.warning("Please upload a file to proceed.")
 
         if st.session_state.get('bulk_msg'):
             st.success(st.session_state['bulk_msg'])
             
             if st.session_state.get('missing_ids'):
-                st.warning("⚠️ Kuch IDs sheet mein nahi mili. Niche se unki list download kar le:")
+                st.warning("⚠️ Some IDs were not found in the database. You can download the list of missing IDs below:")
                 missing_df = pd.DataFrame({'Missing_LPNs': st.session_state['missing_ids']})
                 st.download_button(
                     label="⬇️ Download Missing IDs",
@@ -282,7 +282,7 @@ else:
                     key="download_missing_btn"
                 )
             
-            if st.button("Clear Message", key="clear_bulk_msg"):
+            if st.button("Clear Notification", key="clear_bulk_msg"):
                 st.session_state['bulk_msg'] = None
                 st.session_state['missing_ids'] = None
                 st.rerun()
