@@ -144,7 +144,10 @@ if df is None:
     st.info("👈 Please load data from the Sidebar to begin.")
 else:
     t_rows = len(df)
-    r_count = (df['Received'] == "Received").sum()
+    
+    # Safely calculate received count ignoring blanks/NaNs
+    received_col_safe = df['Received'].astype(str).str.strip()
+    r_count = (received_col_safe == "Received").sum()
     p_count = t_rows - r_count
     
     m1, m2, m3 = st.columns(3)
@@ -223,9 +226,12 @@ else:
                         
                         missing_ids = list(bulk_ids_set - main_ids)
                         
+                        # Apply fix for handling blank 'Received' cells correctly
                         matches_mask = df['Tracking ID'].astype(str).str.strip().str.lower().isin(bulk_ids)
-                        already_received = df[matches_mask & (df['Received'] == "Received")].shape[0]
-                        newly_received_mask = matches_mask & (df['Received'] == "Not Received")
+                        received_col_str = df['Received'].astype(str).str.strip()
+                        
+                        already_received = df[matches_mask & (received_col_str == "Received")].shape[0]
+                        newly_received_mask = matches_mask & (received_col_str != "Received")
                         newly_received = df[newly_received_mask].shape[0]
                         
                         current_time = get_ist_time()
@@ -293,7 +299,7 @@ else:
     st.subheader("📊 Live Data Preview")
     
     def highlight_received(row):
-        if row['Received'] == "Received":
+        if str(row['Received']).strip() == "Received":
             return ['background-color: #2e7d32; color: white'] * len(row)
         else:
             return [''] * len(row)
